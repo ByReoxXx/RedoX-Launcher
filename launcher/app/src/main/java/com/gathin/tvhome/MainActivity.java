@@ -453,6 +453,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         nightShade = new View(this);
         nightShade.setBackgroundColor(0x38000000);
         nightShade.setAlpha(0f);
+        nightShade.setVisibility(View.GONE);
         nightShade.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         root.addView(nightShade, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT));
@@ -1228,8 +1229,15 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (aurora != null) aurora.setSpeed(dark ? 0.45f : 1f);
         if (weatherScene != null) weatherScene.setSpeed(dark ? 0.5f : 1f);
         nightShade.animate().cancel();
-        if (animations && !reducedMotion) nightShade.animate().alpha(dark ? 1f : 0f).setDuration(2000).start();
-        else nightShade.setAlpha(dark ? 1f : 0f);
+        // GONE by day, so a transparent full-screen view is not even in the frame's draw list.
+        if (dark) nightShade.setVisibility(View.VISIBLE);
+        if (animations && !reducedMotion) {
+            nightShade.animate().alpha(dark ? 1f : 0f).setDuration(2000)
+                    .withEndAction(() -> { if (!night) nightShade.setVisibility(View.GONE); }).start();
+        } else {
+            nightShade.setAlpha(dark ? 1f : 0f);
+            if (!dark) nightShade.setVisibility(View.GONE);
+        }
     }
 
     @Override
@@ -2264,13 +2272,13 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (cpu >= 0) {
             String part = getString(R.string.stats_cpu, cpu);
             line.append(part);
-            appendGraded(graded, part, cpu);
+            appendGraded(graded, part, cpu, StatIcon.CPU);
         }
         long[] mem = memUsedOfTotalMb();
         if (mem != null) {
             String part = getString(R.string.stats_memory, mem[0], mem[1]);
             appendStat(line, part);
-            appendGraded(graded, part, mem[1] > 0 ? (int) (mem[0] * 100 / mem[1]) : 0);
+            appendGraded(graded, part, mem[1] > 0 ? (int) (mem[0] * 100 / mem[1]) : 0, StatIcon.MEMORY);
         }
         File data = Environment.getDataDirectory();
         long freeBytes = data.getFreeSpace(), totalBytes = data.getTotalSpace();
@@ -2281,7 +2289,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             int used = totalBytes > 0 ? (int) (100 - freeBytes * 100 / totalBytes) : 0;
             // Under 1 GB left is short on a TV whatever the share: apps stop updating.
             if (freeBytes < 1_000_000_000L) used = Math.max(used, 80);
-            appendGraded(graded, part, used);
+            appendGraded(graded, part, used, StatIcon.STORAGE);
         }
         Locale locale = getResources().getConfiguration().getLocales().get(0);
         String plain = StatsText.forLocale(line.toString(), locale);
@@ -2289,16 +2297,22 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         return plain.equals(line.toString()) ? graded : plain;
     }
 
-    /** One stats part with its figures in the load's colour and a five-step meter after it (StatMeter). */
-    private void appendGraded(SpannableStringBuilder line, String part, int percent) {
+    /**
+     * One stats part: an icon (StatIcon) in place of its label ("CPU", "Memory", "Storage"), its figures in the load's
+     * colour and a five-step meter after it (StatMeter).
+     */
+    private void appendGraded(SpannableStringBuilder line, String part, int percent, int icon) {
         if (line.length() > 0) line.append("  ·  ");
-        int start = line.length();
-        line.append(part);
-        int digit = start;
-        while (digit < line.length() && !Character.isDigit(line.charAt(digit))) digit++;
-        line.setSpan(new ForegroundColorSpan(StatMeter.colorFor(percent)), digit, line.length(),
-                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        int digit = 0;
+        while (digit < part.length() && !Character.isDigit(part.charAt(digit))) digit++;
         int at = line.length();
+        line.append(' ');
+        line.setSpan(new StatIcon(icon, density), at, at + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        int start = line.length();
+        line.append(part.substring(digit));
+        line.setSpan(new ForegroundColorSpan(StatMeter.colorFor(percent)), start, line.length(),
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        at = line.length();
         line.append(' ');
         line.setSpan(new StatMeter(percent, density), at, at + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
     }

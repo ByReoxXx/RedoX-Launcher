@@ -42,8 +42,9 @@ the weather is off and nothing is fetched.
 
 ### Graded stats
 
-CPU, memory and storage under the clock, coloured by load (green under 50%, amber from 50%, red from 80% or
-under 1 GB of free storage), each with a five-step meter.
+CPU, memory and storage under the clock, each shown by a small icon (a chip, a memory module, a drum) and
+coloured by load (green under 50%, amber from 50%, red from 80% or under 1 GB of free storage), with a
+five-step meter.
 
 ### Night mode
 
@@ -65,6 +66,10 @@ slowly changing glow, starting in the colour of the app you left focused.
 The aurora and the weather scene draw about 30 frames a second, only while Home is on screen, and hold still
 after two minutes without a key press; the next key starts them again. On the test TV the launcher used about
 45% of one CPU core while animating and none once still.
+
+App banners larger than a zoomed tile are kept at that size instead of the app's own (often 1280 px or more):
+on the test TV that saved about 4.5 MB of native memory and 6 MB of graphics memory, with no visible change.
+`shrink_banners` in `config.xml` turns it off.
 
 ### Also
 

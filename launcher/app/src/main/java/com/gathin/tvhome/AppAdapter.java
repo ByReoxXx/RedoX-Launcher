@@ -14,6 +14,7 @@ import android.graphics.Color;
 import android.graphics.Outline;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
+import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
@@ -172,6 +173,8 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     static final float MIN_HEIGHT_FIT = 0.85f;
 
     private final Context ctx;
+    /** config.xml shrink_banners: keep banner bitmaps at tile size (shrink). */
+    private final boolean shrinkBanners;
     private final int rowsBelowDock;
     private final boolean dockTitle;
     /** The owner's saved order (reorder button, Order): key -> rank. Empty when there is none or it no longer applies. */
@@ -237,6 +240,7 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         this.rowsBelowDock = cfg.rowsBelowDock;
         this.dockTitle = cfg.dockTitle;
         this.dockRow = cfg.dockRow;
+        this.shrinkBanners = ctx.getResources().getBoolean(R.bool.shrink_banners);
         this.singleRow = cfg.singleRow;
         this.restNameAlpha = cfg.alwaysShowNames ? 0.75f : 0f;
         this.cinematic = cfg.cinematicHome;
@@ -364,7 +368,28 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
         if (banner == null) banner = ri.activityInfo.loadBanner(pm);
         // A square "banner" counts as none: the tile shows the app's icon and name instead of a blur.
-        return banner != null && isBannerShaped(banner.getIntrinsicWidth(), banner.getIntrinsicHeight()) ? banner : null;
+        return banner != null && isBannerShaped(banner.getIntrinsicWidth(), banner.getIntrinsicHeight()) ? shrink(banner) : null;
+    }
+
+    /**
+     * config.xml shrink_banners: a banner bitmap larger than a zoomed tile is kept at the zoomed tile's size, not the
+     * app's (some ship 1280 px or more for a tile under 500 px wide). Every tile's banner stays in memory, and on the
+     * GPU once drawn, so this is most of the artwork's memory. Other drawables (vectors, colours) are left alone.
+     */
+    private Drawable shrink(Drawable banner) {
+        if (!shrinkBanners || !(banner instanceof BitmapDrawable)) return banner;
+        Bitmap bmp = ((BitmapDrawable) banner).getBitmap();
+        if (bmp == null) return banner;
+        float density = ctx.getResources().getDisplayMetrics().density;
+        // The widest tile (single_row's 210 dp) at its focus zoom.
+        int maxW = Math.round(SINGLE_ROW_TILE_DP * density * 1.15f);
+        if (bmp.getWidth() <= maxW) return banner;
+        int h = Math.max(1, Math.round(bmp.getHeight() * (float) maxW / bmp.getWidth()));
+        try {
+            return new BitmapDrawable(ctx.getResources(), Bitmap.createScaledBitmap(bmp, maxW, h, true));
+        } catch (OutOfMemoryError | IllegalArgumentException e) {
+            return banner;
+        }
     }
 
     /**

@@ -43,7 +43,8 @@ yenileniyor. Konum yazılmadıysa (varsayılan) hava durumu kapalı kalıyor ve 
 
 ### Renkli istatistikler
 
-Saatin altında CPU, bellek ve depolama doluluğa göre renkleniyor: %50'nin altında yeşil, %50'den itibaren sarı,
+Saatin altında CPU, bellek ve depolama küçük simgelerle (bir çip, bir bellek modülü, bir silindir) gösteriliyor ve
+doluluğa göre renkleniyor: %50'nin altında yeşil, %50'den itibaren sarı,
 %80'den itibaren ya da 1 GB'tan az boş yer kaldığında kırmızı. Her birinin yanında beş çubuklu bir ölçek var.
 
 ### Gece modu
@@ -66,6 +67,10 @@ koruyucunun yavaşça değişen ışımasının rengini takip ediyor; ilk renk, 
 Kutup ışıkları ve hava durumu sahnesi saniyede yaklaşık 30 kare çiziliyor, sadece ana ekran açıkken çalışıyor ve
 2 dakika tuşa basılmazsa olduğu yerde duruyor; ilk tuşta devam ediyor. Test TV'sinde launcher animasyonlar
 çalışırken bir işlemci çekirdeğinin yaklaşık %45'ini kullandı, durduğunda hiç kullanmadı.
+
+Karttan büyük uygulama görselleri (çoğu zaman 1280 piksel ya da daha büyük), büyütülmüş kart boyutunda saklanıyor:
+test TV'sinde bu, görüntüde fark yaratmadan yaklaşık 4,5 MB native ve 6 MB grafik belleği kazandırdı.
+`config.xml` içindeki `shrink_banners` ayarı bunu kapatır.
 
 ### Ayrıca
 
