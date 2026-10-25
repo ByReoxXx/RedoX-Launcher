@@ -52,6 +52,7 @@ import android.text.Spanned;
 import android.text.TextPaint;
 import android.text.TextUtils;
 import android.text.style.ForegroundColorSpan;
+import android.text.SpannableStringBuilder;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -194,6 +195,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private String greetingName = "";
     /** Optional time-of-day backdrop (config.xml, sky_intensity); 0 keeps it hidden. */
     private SkyView sky;
+    private AuroraBackgroundView aurora;
     private String vpnApp;
     private SpringAnimation springX, springY;
     private float glassTargetX, glassTargetY;
@@ -205,6 +207,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private int glassCardW;   // width of the tile the glass was last fitted to
     private boolean glassShown;
     private final Rect tileRect = new Rect();
+    /** The glass dock's frame in root coordinates (single_row), for placing the shelf above it. */
+    private final Rect heroFrame = new Rect();
+    /** single_row: the most position dots the shelf shows, however many apps the row holds. */
+    private static final int MAX_ROW_DOTS = 5;
     private final Rect revealRect = new Rect();
     // Static so they survive the activity being destroyed while another app is open (low-memory TVs,
     // or Developer options → "Don't keep activities"); they only reset when the process dies.
@@ -409,6 +415,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         coocaaSources = cfg.coocaaSources;
 
         root = findViewById(R.id.root);
+        aurora = new AuroraBackgroundView(this);
+        root.addView(aurora, 0, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT));
         root.setBackgroundColor(cfg.backgroundColor);
         // root fills the window with an opaque colour (Config keeps background_color opaque), so the window's own
         // black under it is a second full-screen fill on every frame for nothing. The starting window still uses
@@ -417,6 +427,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         wallpaperPlayer = new WallpaperPlayer(this, root, cfg);
         sky = findViewById(R.id.sky);
         sky.setIntensity(cfg.skyIntensity);
+        WeatherView weather = findViewById(R.id.weather);
+        weather.setTypeface(((TextView) findViewById(R.id.clock)).getTypeface());
+        weather.setLocation(getString(R.string.latitude), getString(R.string.longitude));
+        weather.setListener(findViewById(R.id.weatherScene));
         glass = findViewById(R.id.glass);
         glass.setStyle(cfg.glassStyle);
         if (festive) glass.setAccent(festival.accentColor());
@@ -578,10 +592,27 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         adapter.setSavedOrder(Order.ranks(savedOrder, dockApps), Order.docked(savedOrder, dockApps));
         grid.setAdapter(adapter);
 
+        if (singleRow) {
+            grid.setHorizontalScrollBarEnabled(false);
+            grid.addOnScrollListener(new RecyclerView.OnScrollListener() {
+                @Override
+                public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
+                    if (glassShown) refitGlass();
+                }
+            });
+        }
+
+        if (singleRow && dockRow) setUpGlassDock(cfg);
+
         // tvOS layout: push the dock row towards the bottom of the screen, leaving room for
         // rows_below_dock grid rows under it; the rest of the grid stays below until you press Down.
         int rowsBelowDock = cfg.rowsBelowDock;
         grid.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            // The glass dock (setUpGlassDock) has its own fixed size and padding: nothing to push down.
+            if (singleRow && MainActivity.this.dockRow) {
+                grid.post(this::refitGlass);
+                return;
+            }
             int h = b - t;
             // Item height follows the tile size, which follows the columns and the rows that must fit (AppAdapter.tileWidthPx).
             int inner = (r - l) - grid.getPaddingLeft() - grid.getPaddingRight();
@@ -681,7 +712,22 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         btnInputs = findViewById(R.id.btnInputs);
         View btnSettings = findViewById(R.id.btnSettings);
         btnInputs.setOnClickListener(v -> showInputs());
-        btnWifi.setOnClickListener(v -> openNetworkPill());
+        btnWifi.setFocusable(true);
+        btnWifi.setClickable(true);
+        btnWifi.setOnClickListener(v -> {
+            Intent intent = getPackageManager().getLaunchIntentForPackage("ch.protonvpn.android");
+            if (intent == null && !vpnApp.isEmpty()) {
+                intent = getPackageManager().getLaunchIntentForPackage(vpnApp);
+            }
+            if (intent == null) {
+                intent = new Intent(Settings.ACTION_VPN_SETTINGS);
+            }
+            try {
+                startActivity(intent);
+            } catch (Exception e) {
+                open(systemIntent(Settings.ACTION_SETTINGS));
+            }
+        });
         btnWifi.setOnLongClickListener(v -> {
             open(systemIntent(Settings.ACTION_WIFI_SETTINGS));
             return true;
@@ -1620,6 +1666,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if ((cinematic || appGlow) && !festive && accent != glassAccent) {
             glassAccent = accent;
             glass.setAccent(accent);
+            if (aurora != null) aurora.setAccentColor(accent);
         }
         if (!glassShown) {
             springX.cancel();
@@ -1683,7 +1730,18 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private void showHero(int position, float dockTopInRoot) {
         String label = adapter.labelAt(position);
         int color = adapter.ambientColorAt(position);
-        float y = dockTopInRoot - 14 * density - 26 * density - hero.getHeight();
+        float shelfBottom = dockTopInRoot - 14 * density - 26 * density;
+        if (singleRow && dockRow) {
+            // The glass dock: the dots stay put 14dp above its frame (setUpGlassDock took them out of the shelf, so
+            // they neither fade nor slide with the name) and change at once; the name sits 10dp above them.
+            heroFrame.set(0, 0, grid.getWidth(), grid.getHeight());
+            root.offsetDescendantRectToMyCoords(grid, heroFrame);
+            float dotsY = heroFrame.top - 14 * density - heroDots.getLayoutParams().height;
+            heroDots.setY(dotsY);
+            if (cinematic) updateHeroDots(position);
+            shelfBottom = dotsY - 10 * density;
+        }
+        float y = shelfBottom - hero.getHeight();
         boolean changed = !label.contentEquals(heroName.getText());
         if (cinematic && heroArtAlpha > 0f) showHeroArt(position);
 
@@ -1744,6 +1802,65 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (!cinematic) return;
         updateHeroMeta(position);
         updateHeroDots(position);
+    }
+
+    /**
+     * single_row with dock_row: the row itself is the dock, a rounded glass frame exactly COLUMNS tiles wide, centred
+     * at the bottom of the screen. The tiles slide sideways inside it and are clipped at its rounded edge. The shelf's
+     * dots are centred above it.
+     */
+    private void setUpGlassDock(Config cfg) {
+        int sidePad = Math.round(14 * density);
+        int margin = Math.round(24 * density);
+        int maxCell = Math.round((AppAdapter.SINGLE_ROW_TILE_DP + AppAdapter.SINGLE_ROW_GAP_DP) * density);
+        int screenW = getResources().getDisplayMetrics().widthPixels;
+        int cell = Math.min(maxCell, (screenW - 2 * margin - 2 * sidePad) / COLUMNS);
+        int tileH = AppAdapter.tileHeightPx(cell - Math.round(AppAdapter.SINGLE_ROW_GAP_DP * density));
+        // 14dp above and 8dp below, plus DockDecoration's 6dp and 12dp: the tile sits 24dp from both edges.
+        int padTop = sidePad, padBottom = Math.round(8 * density);
+        int height = padTop + AppAdapter.itemHeightPx(tileH, density) + Math.round(AppAdapter.DOCK_EXTRA_DP * density) + padBottom;
+
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(COLUMNS * cell + 2 * sidePad, height,
+                Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        lp.bottomMargin = Math.round(AppAdapter.BOTTOM_ROOM_DP * density);
+        grid.setLayoutParams(lp);
+        grid.setPadding(sidePad, padTop, sidePad, padBottom);
+
+        GradientDrawable frame = new GradientDrawable();
+        frame.setCornerRadius(26 * density);
+        if (cfg.dockGlass) {
+            // The pills' frosted glass, as DockDecoration draws its band.
+            frame.setOrientation(GradientDrawable.Orientation.TOP_BOTTOM);
+            frame.setColors(new int[]{0x24FFFFFF, 0x0DFFFFFF});
+        } else {
+            frame.setColor(cinematic ? 0x8C121014 : (Math.round(cfg.dockOpacity * 2.55f) << 24) | 0x141416);
+        }
+        frame.setStroke(Math.max(1, Math.round(density)), cfg.dockGlass ? 0x38FFFFFF : cinematic ? 0x26FFFFFF : 0x1FFFFFFF);
+        grid.setBackground(frame);
+        // Clip the sliding tiles to the rounded frame (the background's outline).
+        grid.setClipToOutline(true);
+
+        // The shelf spans the screen so its dots can centre; the name and the meta line keep their left margin.
+        ViewGroup.MarginLayoutParams heroLp = (ViewGroup.MarginLayoutParams) hero.getLayoutParams();
+        int heroStart = heroLp.getMarginStart();
+        heroLp.width = ViewGroup.LayoutParams.MATCH_PARENT;
+        heroLp.setMarginStart(0);
+        hero.setLayoutParams(heroLp);
+        for (View v : new View[]{heroName, heroMeta}) {
+            ViewGroup.MarginLayoutParams vlp = (ViewGroup.MarginLayoutParams) v.getLayoutParams();
+            vlp.setMarginStart(vlp.getMarginStart() + heroStart);
+            v.setLayoutParams(vlp);
+        }
+        // A smaller name, closer to the dock than the cinematic shelf's 68sp one with its wide gaps.
+        heroName.setTextSize(TypedValue.COMPLEX_UNIT_SP, 52f);
+        ViewGroup.MarginLayoutParams metaLp = (ViewGroup.MarginLayoutParams) heroMeta.getLayoutParams();
+        metaLp.topMargin = Math.round(6 * density);
+        heroMeta.setLayoutParams(metaLp);
+        // The dots leave the shelf for a fixed place of their own, centred above the dock (showHero sets their Y),
+        // so they stay on screen while the name fades and slides between apps.
+        ((ViewGroup) heroDots.getParent()).removeView(heroDots);
+        root.addView(heroDots, root.indexOfChild(hero) + 1, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, Math.round(6 * density), Gravity.TOP | Gravity.CENTER_HORIZONTAL));
     }
 
     // ---- cinematic shelf -------------------------------------------------------------------------
@@ -1842,7 +1959,12 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     /** One dot per dock app, the focused one drawn long and white. Hebrew docks start on the right, so do the dots. */
     private void updateHeroDots(int position) {
         if (!heroDotsShown) return;
-        int count = Math.min(adapter.dockFilled(), COLUMNS);
+        // A single row is all dock: at most MAX_ROW_DOTS dots for the whole row, the lit one at the focused app's share
+        // of the way along it (first app the first dot, last app the last).
+        int count = singleRow ? Math.min(adapter.appCount(), MAX_ROW_DOTS) : Math.min(adapter.dockFilled(), COLUMNS);
+        if (singleRow && adapter.appCount() > count) {
+            position = Math.round(position * (count - 1f) / (adapter.appCount() - 1f));
+        }
         heroDots.setVisibility(count > 1 ? View.VISIBLE : View.INVISIBLE);
         if (heroDots.getChildCount() != count) {
             heroDots.removeAllViews();
@@ -2025,7 +2147,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             @Override
             public void run() {
                 if (statsBg != bg) return;
-                String line = readStatsLine();
+                CharSequence line = readStatsLine();
                 handler.post(() -> {
                     if (showStats && stats != null && statsBg == bg) stats.setText(line);
                 });
@@ -2051,7 +2173,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         line.append(part);
     }
 
-    private String readStatsLine() {
+    private CharSequence readStatsLine() {
         int cpu = cpuPercent();
         if (cpu < 0) {
             try {
@@ -2065,12 +2187,47 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         // Android 8 and later hide /proc/stat from apps on many TVs: then the line leaves CPU out rather than
         // showing a dash that never fills in.
         StringBuilder line = new StringBuilder();
-        if (cpu >= 0) line.append(getString(R.string.stats_cpu, cpu));
+        SpannableStringBuilder graded = new SpannableStringBuilder();
+        if (cpu >= 0) {
+            String part = getString(R.string.stats_cpu, cpu);
+            line.append(part);
+            appendGraded(graded, part, cpu);
+        }
         long[] mem = memUsedOfTotalMb();
-        if (mem != null) appendStat(line, getString(R.string.stats_memory, mem[0], mem[1]));
-        String free = formatGb(getResources(), Environment.getDataDirectory().getFreeSpace());
-        if (!free.isEmpty()) appendStat(line, getString(R.string.stats_storage, free));
-        return StatsText.forLocale(line.toString(), getResources().getConfiguration().getLocales().get(0));
+        if (mem != null) {
+            String part = getString(R.string.stats_memory, mem[0], mem[1]);
+            appendStat(line, part);
+            appendGraded(graded, part, mem[1] > 0 ? (int) (mem[0] * 100 / mem[1]) : 0);
+        }
+        File data = Environment.getDataDirectory();
+        long freeBytes = data.getFreeSpace(), totalBytes = data.getTotalSpace();
+        String free = formatGb(getResources(), freeBytes);
+        if (!free.isEmpty()) {
+            String part = getString(R.string.stats_storage, free);
+            appendStat(line, part);
+            int used = totalBytes > 0 ? (int) (100 - freeBytes * 100 / totalBytes) : 0;
+            // Under 1 GB left is short on a TV whatever the share: apps stop updating.
+            if (freeBytes < 1_000_000_000L) used = Math.max(used, 80);
+            appendGraded(graded, part, used);
+        }
+        Locale locale = getResources().getConfiguration().getLocales().get(0);
+        String plain = StatsText.forLocale(line.toString(), locale);
+        // Hebrew needs StatsText's direction marks around each figure, which the spans would split: plain there.
+        return plain.equals(line.toString()) ? graded : plain;
+    }
+
+    /** One stats part with its figures in the load's colour and a five-step meter after it (StatMeter). */
+    private void appendGraded(SpannableStringBuilder line, String part, int percent) {
+        if (line.length() > 0) line.append("  ·  ");
+        int start = line.length();
+        line.append(part);
+        int digit = start;
+        while (digit < line.length() && !Character.isDigit(line.charAt(digit))) digit++;
+        line.setSpan(new ForegroundColorSpan(StatMeter.colorFor(percent)), digit, line.length(),
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        int at = line.length();
+        line.append(' ');
+        line.setSpan(new StatMeter(percent, density), at, at + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
     }
 
     // -1: need another sample. -2: this source cannot be read (Android 9 hides /proc/stat from apps).
@@ -2297,6 +2454,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     @Override public void onLibraryUp() {
         if (adapter.appCount() == 0) { firstTopButton().requestFocus(); return; }
+        // A single row has no rows to line up with: back to its last app, next to the button.
+        if (singleRow) { focusTile(adapter.appCount() - 1); return; }
         int lastRow = ((adapter.appCount() - 1) / COLUMNS) * COLUMNS;
         focusTile(Math.min(lastRow + lastFocused % COLUMNS, adapter.appCount() - 1));
     }
@@ -2536,7 +2695,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 if (caps == null) continue;
                 if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) {
                     vpn = true;
-                    continue;
                 }
                 if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) continue;
                 online = true;
@@ -2545,9 +2703,19 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 if (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) ethernet = true;
                 if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) wifi = true;
             }
+            if (!vpn) {
+                try {
+                    for (java.net.NetworkInterface ni : Collections.list(java.net.NetworkInterface.getNetworkInterfaces())) {
+                        String name = ni.getName().toLowerCase();
+                        if (name.contains("tun") || name.contains("ppp") || name.contains("vpn")) {
+                            vpn = true;
+                            break;
+                        }
+                    }
+                } catch (Exception ignored) {}
+            }
             if (!online) {
                 text = getString(R.string.offline);
-                vpn = false;
             } else if (ethernet) {
                 text = getString(R.string.ethernet);
                 icon = R.drawable.ic_ethernet;
@@ -2565,36 +2733,19 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             }
         } catch (Exception ignored) {
         }
-        // With a VPN app configured, a VPN that is down matters too: show a red "VPN off" capsule then.
-        boolean vpnDown = !vpn && online && !vpnApp.isEmpty();
-        if (vpn || vpnDown) {
-            // Network name, then the green lock-and-VPN (or red "VPN off") capsule drawn in place of the word.
-            String badge = getString(vpn ? R.string.vpn : R.string.vpn_off);
-            VpnBadge span = new VpnBadge(vpn ? getDrawable(R.drawable.ic_lock) : null, density);
-            // The pill has a maximum width and ellipsizes at the end, which would cut the badge off after
-            // a long network name, so shorten the name to whatever room the badge leaves. The Wi-Fi icon and its
-            // gap are counted by hand: until the pill has a resolved layout direction (the first call, from
-            // onResume, runs before that) getTotalPaddingStart/End leave the compound drawables out, which
-            // left the name about 31dp too much room and the badge cut off.
-            TextPaint paint = btnWifi.getPaint();
-            Drawable[] compound = btnWifi.getCompoundDrawablesRelative();
-            int iconRoom = compound[0] != null ? compound[0].getIntrinsicWidth() + btnWifi.getCompoundDrawablePadding() : 0;
-            float room = btnWifi.getMaxWidth() - btnWifi.getPaddingStart() - btnWifi.getPaddingEnd() - iconRoom
-                    - span.getSize(paint, badge, 0, badge.length(), null) - paint.measureText(" ") - 2 * density;
-            String name = TextUtils.ellipsize(text, paint, Math.max(0, room), TextUtils.TruncateAt.END).toString();
-            // A long badge ("VPN отключён") can leave room for a stub like "MT…", which says nothing and, after
-            // rounding, can push the badge itself out of the pill. Show the badge alone then. On Ethernet the
-            // icon already names the link, and "Ethernet" cut to "Ethe…" or not depended on the font size (#961),
-            // so Ethernet always shows the icon and the badge alone.
-            // The space stays even then: a line holding only the span gets no font metrics and collapses.
-            boolean stub = name.length() < text.length() && name.length() < 5;
-            text = stub || icon == R.drawable.ic_ethernet ? "" : name;
-            SpannableString label = new SpannableString(text + " " + badge);
-            label.setSpan(span, text.length() + 1, label.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            if (!TextUtils.equals(btnWifi.getText(), label)) btnWifi.setText(label);
-        } else if (!TextUtils.equals(btnWifi.getText(), text)) {
-            btnWifi.setText(text);
-        }
+        String badge = getString(vpn ? R.string.vpn_open : R.string.vpn_closed);
+        VpnBadge span = new VpnBadge(vpn ? getDrawable(R.drawable.ic_lock) : null, density, vpn);
+        TextPaint paint = btnWifi.getPaint();
+        Drawable[] compound = btnWifi.getCompoundDrawablesRelative();
+        int iconRoom = compound[0] != null ? compound[0].getIntrinsicWidth() + btnWifi.getCompoundDrawablePadding() : 0;
+        float room = btnWifi.getMaxWidth() - btnWifi.getPaddingStart() - btnWifi.getPaddingEnd() - iconRoom
+                - span.getSize(paint, badge, 0, badge.length(), null) - paint.measureText(" ") - 2 * density;
+        String name = TextUtils.ellipsize(text, paint, Math.max(0, room), TextUtils.TruncateAt.END).toString();
+        boolean stub = name.length() < text.length() && name.length() < 5;
+        text = stub || icon == R.drawable.ic_ethernet ? "" : name;
+        SpannableString label = new SpannableString(text + " " + badge);
+        label.setSpan(span, text.length() + 1, label.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        if (!TextUtils.equals(btnWifi.getText(), label)) btnWifi.setText(label);
         if (wifiIconOnly) {
             btnWifi.setContentDescription(btnWifi.getText());
             btnWifi.setText(null);

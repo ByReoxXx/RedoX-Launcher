@@ -103,6 +103,13 @@
         android:visibility="gone"
         android:importantForAccessibility="no" />
 
+    <!-- The weather acted out in the top-left corner (WeatherScene): over the scrim, behind the clock and the shelf. -->
+    <com.gathin.tvhome.WeatherScene
+        android:id="@+id/weatherScene"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:importantForAccessibility="no" />
+
     <!-- Top shelf: the focused dock app's name, positioned above the dock in code. -->
     <LinearLayout
         android:id="@+id/hero"
@@ -221,6 +228,17 @@
                         android:fontFamily="@string/font_medium"
                         android:letterSpacing="0.08"
                         android:textAllCaps="true" />
+
+                    <!-- The weather now (WeatherView): gone until the first reading, and without a latitude and longitude. -->
+                    <com.gathin.tvhome.WeatherView
+                        android:id="@+id/weather"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="bottom"
+                        android:layout_marginStart="20dp"
+                        android:layout_marginBottom="4dp"
+                        android:focusable="false"
+                        android:importantForAccessibility="yes" />
 
                     <View
                         android:id="@+id/clockDivider"
@@ -365,6 +383,7 @@
 
         <!-- The wrapper clips at the grid's edge; the grid itself must not clip so scaled tiles can overflow their cells. -->
         <FrameLayout
+            android:id="@+id/dockWrapper"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
@@ -378,6 +397,7 @@
                 android:paddingBottom="40dp"
                 android:paddingStart="10dp"
                 android:paddingEnd="10dp"
+                android:background="@null"
                 android:clipToPadding="false"
                 android:clipChildren="false"
                 android:overScrollMode="never"

@@ -1,3 +1,35 @@
+# RedoX Launcher
+
+A fork of [CleanYourTV](https://github.com/Gathin23/cleanyourtv) with a reworked home screen for Android TV.
+Everything below this section is the upstream README; the debloat tools and their safety rules are unchanged.
+
+**What this fork changes in the launcher (`launcher/`):**
+
+- **Glass dock:** every app sits in one row inside a rounded glass frame, four tiles wide and centred at the
+  bottom. The tiles slide inside it, with no names under them. The App library button sits at the end of the row,
+  and Left or Up from it returns to the apps.
+- **Shelf:** a smaller app name above the dock, with at most five fixed position dots centred under it.
+- **Weather:** an animated sign and the temperature beside the clock, and the weather acted out in the top-left
+  corner (sunlight, night stars, clouds, rain, snow, storm or fog). Data comes from
+  [Open-Meteo](https://open-meteo.com/) for the `latitude` and `longitude` in `config.xml`; left empty (the default
+  here), the weather stays off and nothing is fetched.
+- **Stats line:** CPU, memory and storage coloured by load (green, amber, red), each with a five-step meter.
+- **Background:** an aurora behind everything that takes the focused app's colour.
+- **VPN pill:** a green "VPN Açık" or red "VPN Kapalı" badge, and the pill opens the VPN app (`vpn_app`).
+
+**Differences from upstream to know about:**
+
+- This launcher has the `INTERNET` permission, for the weather only. Upstream's launcher has no network access
+  on purpose. What is sent: the latitude and longitude you set, every 30 minutes while Home is on screen.
+- The continuous animations (aurora, weather) cost CPU; on a TV with 1 GB of RAM, turn them off or expect lag.
+- The package name is still `com.gathin.tvhome`, so it installs over CleanYourTV's launcher.
+
+Set your own values in `launcher/app/src/main/res/values/config.xml` (`greeting_name`, `latitude`,
+`longitude`, `dock_apps`, `vpn_app`), then build and install as described below
+(`TV_HOST=<tv ip> launcher/build-and-install.sh`). MIT licence, as upstream.
+
+---
+
 <p align="center">
   <a href="https://cleanyour.tv"><img src="https://raw.githubusercontent.com/Gathin23/cleanyourtv/main/docs/banner.png" alt="CleanYourTV. Your TV, minus the ads. Strip the bloatware from any Android TV or Google TV over Wi-Fi and replace the ad-filled home screen with a clean launcher that looks like an Apple TV. No root, no cable, nothing uninstalled, and a one-line restore." width="800"></a>
 </p>
