@@ -19,8 +19,9 @@ import java.io.File;
 import java.util.Random;
 
 /**
- * The clock screensaver's scene (layout dream_clock): the thin clock and date on black over a slow ambient
- * glow. Every minute the clock drifts to a new spot and the glow shifts colour, so nothing burns in.
+ * The clock screensaver's scene (layout dream_clock): Home's rolling clock, the date and the temperature on black
+ * over a slow ambient glow, with the weather acted out in the corner (WeatherScene). Every minute the clock drifts to
+ * a new spot and the glow shifts colour, so nothing burns in; the clock takes the glow's colour.
  * Shared by ClockDream (the system screensaver) and ClockActivity (Home left idle).
  */
 final class ClockScene {
@@ -37,6 +38,7 @@ final class ClockScene {
     private final View content;
     private final View ambient;
     private final GradientDrawable glow;
+    private final RollingClock clock;
     private int colorIndex;
     private int glowColor;
     /** clock_wallpaper or clock_glow false: something else (a picture, or plain black) replaced the coloured glow. */
@@ -61,6 +63,13 @@ final class ClockScene {
     ClockScene(View root) {
         content = root.findViewById(R.id.dreamContent);
         ambient = root.findViewById(R.id.dreamAmbient);
+        clock = root.findViewById(R.id.dreamClock);
+        WeatherView weather = root.findViewById(R.id.dreamWeather);
+        Context ctx = root.getContext();
+        weather.setTypeface(clock.getTypeface());
+        weather.setLocation(ctx.getString(R.string.latitude), ctx.getString(R.string.longitude));
+        weather.setListener(root.findViewById(R.id.dreamScene));
+        weather.setDivider(root.findViewById(R.id.dreamWeatherDivider));
         glow = new GradientDrawable();
         glow.setGradientType(GradientDrawable.RADIAL_GRADIENT);
         ambient.setBackground(glow);
@@ -68,6 +77,12 @@ final class ClockScene {
                 glow.setGradientRadius((r - l) * 0.55f));
         colorIndex = random.nextInt(PALETTE.length);
         setGlow(PALETTE[colorIndex]);
+    }
+
+    /** Start the glow, and the clock with it, in this colour (the app focused on Home); 0 keeps the palette's. */
+    void setAccent(int color) {
+        if (color == 0) return;
+        setGlow(color | 0xFF000000);
     }
 
     void start() {
@@ -196,6 +211,7 @@ final class ClockScene {
 
     private void setGlow(int color) {
         glowColor = color;
+        clock.setAccent(color);
         int c = color & 0x00FFFFFF;
         glow.setColors(new int[]{0x40000000 | c, 0x14000000 | c, 0x00000000 | c});
     }

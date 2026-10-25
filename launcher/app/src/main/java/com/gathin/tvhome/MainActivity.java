@@ -81,6 +81,8 @@ import androidx.recyclerview.widget.RecyclerView;
 import java.io.File;
 import java.io.IOException;
 import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
@@ -117,7 +119,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private long settingsRevision;
     /** Idle time on Home before ClockActivity; 0 is off (config.xml, home_idle_clock_minutes). */
     private long idleClockMs;
-    private final Runnable showIdleClock = () -> startActivity(new Intent(this, ClockActivity.class));
+    private final Runnable showIdleClock = this::showIdleClock;
     private String liveTvAction;
     private String liveTvInputId;
     /** The app library is on (config.xml, app_library): only then can the tile menu take an app off Home. */
@@ -196,6 +198,14 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     /** Optional time-of-day backdrop (config.xml, sky_intensity); 0 keeps it hidden. */
     private SkyView sky;
     private AuroraBackgroundView aurora;
+    private RollingClock clock;
+    private WeatherScene weatherScene;
+    /** Night mode: a light shade over Home between sunset and sunrise (Sun, config.xml latitude and longitude). */
+    private View nightShade;
+    private boolean night;
+    /** Home untouched this long: the aurora and the weather scene hold still until the next key. */
+    private static final long CALM_MS = 2 * 60_000L;
+    private final Runnable calmDown = () -> setAnimationsPaused(true);
     private String vpnApp;
     private SpringAnimation springX, springY;
     private float glassTargetX, glassTargetY;
@@ -371,6 +381,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             if (festive) updateWifiLabel();
             sky.update();
             wallpaperPlayer.update();
+            updateNight();
             handler.postDelayed(this, MINUTE_MS);
         }
     };
@@ -428,10 +439,23 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         sky = findViewById(R.id.sky);
         sky.setIntensity(cfg.skyIntensity);
         WeatherView weather = findViewById(R.id.weather);
-        weather.setTypeface(((TextView) findViewById(R.id.clock)).getTypeface());
+        clock = findViewById(R.id.clock);
+        weather.setTypeface(clock.getTypeface());
+        // The clock's glow and its rolling digits reach past its own bounds: let its rows draw them.
+        ((ViewGroup) clock.getParent()).setClipChildren(false);
+        ((ViewGroup) findViewById(R.id.leftBlock)).setClipChildren(false);
         weather.setLocation(getString(R.string.latitude), getString(R.string.longitude));
         weather.setListener(findViewById(R.id.weatherScene));
+        weather.setDivider(findViewById(R.id.weatherDivider));
+        weatherScene = findViewById(R.id.weatherScene);
         glass = findViewById(R.id.glass);
+        // Night mode's shade, over everything (updateNight); it never takes focus or touches.
+        nightShade = new View(this);
+        nightShade.setBackgroundColor(0x38000000);
+        nightShade.setAlpha(0f);
+        nightShade.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        root.addView(nightShade, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT));
         glass.setStyle(cfg.glassStyle);
         if (festive) glass.setAccent(festival.accentColor());
         ambient = findViewById(R.id.ambient);
@@ -466,6 +490,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             // The clock's own white for the date and the line before it, instead of their dimmed whites.
             ((TextView) findViewById(R.id.date)).setTextColor(Color.WHITE);
             findViewById(R.id.clockDivider).setBackgroundColor(Color.WHITE);
+            findViewById(R.id.weatherDivider).setBackgroundColor(Color.WHITE);
         }
         if (getResources().getBoolean(R.bool.rtl_menu_bar)) {
             // Center Hebrew greetings over the numeric time, independent of a visible AM/PM label.
@@ -967,6 +992,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             return;
         }
         restartIdleClock();
+        updateNight();
         promptsPaused = false;
         if (grid.getAdapter() == null) grid.setAdapter(adapter);   // dropped by onTrimMemory
         switch (tileRefresh.onResume(packagesChangedSinceRebuild())) {
@@ -1157,15 +1183,60 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         restartIdleClock();
     }
 
+    /** The clock screensaver, in the colour of the app focused on Home. */
+    private void showIdleClock() {
+        int accent = adapter != null && adapter.appCount() > 0
+                ? adapter.ambientColorAt(Math.max(0, Math.min(lastFocused, adapter.appCount() - 1))) : 0;
+        startActivity(new Intent(this, ClockActivity.class).putExtra(ClockActivity.EXTRA_ACCENT, accent));
+    }
+
     private void restartIdleClock() {
         root.removeCallbacks(showIdleClock);
         if (idleClockMs > 0) root.postDelayed(showIdleClock, idleClockMs);
+        setAnimationsPaused(false);
+        root.removeCallbacks(calmDown);
+        root.postDelayed(calmDown, CALM_MS);
+    }
+
+    private void setAnimationsPaused(boolean paused) {
+        if (aurora != null) aurora.setPaused(paused);
+        if (weatherScene != null) weatherScene.setPaused(paused);
+    }
+
+    /**
+     * Night mode, checked every minute: between sunset and sunrise (07:00 to 19:30 without a latitude and longitude) a
+     * light shade dims Home and the aurora and the weather scene move at half speed.
+     */
+    private void updateNight() {
+        int rise = 7 * 60, set = 19 * 60 + 30;
+        try {
+            int[] sun = Sun.riseAndSet(LocalDate.now(), Double.parseDouble(getString(R.string.latitude)),
+                    Double.parseDouble(getString(R.string.longitude)), ZoneId.systemDefault());
+            if (sun != null) {
+                rise = sun[0];
+                set = sun[1];
+            }
+        } catch (NumberFormatException noPlace) {
+            // No latitude and longitude: the fixed hours above.
+        }
+        LocalTime now = LocalTime.now();
+        int minute = now.getHour() * 60 + now.getMinute();
+        boolean dark = minute < rise || minute >= set;
+        if (dark == night && nightShade.getTag() != null) return;
+        night = dark;
+        nightShade.setTag(Boolean.TRUE);
+        if (aurora != null) aurora.setSpeed(dark ? 0.45f : 1f);
+        if (weatherScene != null) weatherScene.setSpeed(dark ? 0.5f : 1f);
+        nightShade.animate().cancel();
+        if (animations && !reducedMotion) nightShade.animate().alpha(dark ? 1f : 0f).setDuration(2000).start();
+        else nightShade.setAlpha(dark ? 1f : 0f);
     }
 
     @Override
     protected void onPause() {
         super.onPause();
         root.removeCallbacks(showIdleClock);
+        root.removeCallbacks(calmDown);
         endReorder();   // Home or another app while reordering keeps the order so far
         wallpaperPlayer.stop();
         stopAmbientAnimation();
@@ -1668,6 +1739,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             glass.setAccent(accent);
             if (aurora != null) aurora.setAccentColor(accent);
         }
+        // The clock takes every focused app's colour, whatever the glass does.
+        if (!festive) clock.setAccent(adapter.ambientColorAt(position));
         if (!glassShown) {
             springX.cancel();
             springY.cancel();

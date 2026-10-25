@@ -42,6 +42,11 @@ public final class WeatherScene extends View implements WeatherView.Listener {
     private RadialGradient warm, cool, grey, flash;
     private Bitmap cloud;
     private PorterDuffColorFilter tint;
+    /** Scene time in seconds, advanced by the frames drawn (so pause and speed changes never jump). */
+    private float time;
+    private long lastFrame;
+    private float speed = 1f;
+    private boolean paused;
     private int tintColor;
     private final RectF dst = new RectF();
 
@@ -85,16 +90,33 @@ public final class WeatherScene extends View implements WeatherView.Listener {
                 Shader.TileMode.CLAMP);
     }
 
+    /** Frozen on its current frame (Home idle), or running again. */
+    void setPaused(boolean pause) {
+        if (pause == paused) return;
+        paused = pause;
+        lastFrame = 0;
+        invalidate();
+    }
+
+    /** 1 is the normal pace; night mode slows it. */
+    void setSpeed(float s) {
+        speed = s;
+    }
+
     @Override
     protected void onWindowVisibilityChanged(int visibility) {
         super.onWindowVisibilityChanged(visibility);
+        lastFrame = 0;
         if (visibility == VISIBLE) invalidate();
     }
 
     @Override
     protected void onDraw(Canvas c) {
         if (sky == null || reach <= 0) return;
-        float t = SystemClock.uptimeMillis() / 1000f;
+        long now = SystemClock.uptimeMillis();
+        if (!paused && lastFrame > 0) time += (now - lastFrame) / 1000f * speed;
+        lastFrame = now;
+        float t = time;
         switch (sky) {
             case CLEAR:
                 if (day) sunlight(c, t, 1f);
@@ -130,7 +152,7 @@ public final class WeatherScene extends View implements WeatherView.Listener {
                 if (p < 0.1f || p > 0.22f && p < 0.3f) glowAt(c, flash, 1f);
                 break;
         }
-        if (getWindowVisibility() == VISIBLE) postInvalidateDelayed(FRAME_MS);
+        if (!paused && getWindowVisibility() == VISIBLE) postInvalidateDelayed(FRAME_MS);
     }
 
     /** The share of full strength at (x, y): 1 in the corner, 0 at the scene's reach. */

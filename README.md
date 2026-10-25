@@ -20,10 +20,17 @@ Above the dock, up to five fixed dots show how far along the row you are.
 
 ![Scrolling the dock](docs/redox/scroll.jpg)
 
+### Clock
+
+The clock takes the focused app's colour, kept bright so it stands out over the backdrop, with a dark shadow
+under it and a soft glow in the same colour. When the minute changes, only the digits that change roll: the old
+one slides up and out, the new one rises from below.
+
 ### Weather
 
-An animated sign and the temperature sit beside the clock, and the weather plays out in the top-left corner
-behind it: sunlight with slow rays, stars at night, drifting clouds, rain, snow, storm flashes or fog.
+The temperature sits beside the clock, with today's daytime high (a small sun) over tonight's low (a small moon).
+The weather plays out in the top-left corner behind it: sunlight with slow rays, stars at night, drifting
+clouds, rain, snow, storm flashes or fog.
 
 | Sunny | Rain |
 |---|---|
@@ -37,6 +44,27 @@ the weather is off and nothing is fetched.
 
 CPU, memory and storage under the clock, coloured by load (green under 50%, amber from 50%, red from 80% or
 under 1 GB of free storage), each with a five-step meter.
+
+### Night mode
+
+From sunset to sunrise (worked out on the TV from your latitude and longitude, or 19:30 to 07:00 without them)
+Home dims a little and the aurora and the weather move at half speed.
+
+![Night mode](docs/redox/night.jpg)
+
+### Screensaver
+
+The clock screensaver (Home left idle for `home_idle_clock_minutes`, and the system screensaver) uses the same
+rolling clock, the date, the temperature and the weather in the corner. The clock follows the screensaver's
+slowly changing glow, starting in the colour of the app you left focused.
+
+![Screensaver](docs/redox/screensaver.jpg)
+
+### Light on the TV
+
+The aurora and the weather scene draw about 30 frames a second, only while Home is on screen, and hold still
+after two minutes without a key press; the next key starts them again. On the test TV the launcher used about
+45% of one CPU core while animating and none once still.
 
 ### Also
 

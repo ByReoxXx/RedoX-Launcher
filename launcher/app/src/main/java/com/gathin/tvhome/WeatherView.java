@@ -4,12 +4,12 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Path;
-import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.os.SystemClock;
 import android.util.AttributeSet;
 import android.view.View;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
@@ -19,9 +19,9 @@ import java.net.URL;
 import java.util.Locale;
 
 /**
- * The weather now, beside the clock: a small animated sign (sun, moon, clouds, rain, snow, storm or fog) and the
- * temperature. Read from Open-Meteo (no key, no account) for config.xml's latitude and longitude, every 30 minutes
- * while Home is on screen and 5 minutes after a failure; nothing runs or animates while Home is hidden. Without a
+ * The temperature now, beside the clock, with today's daytime high (a small sun) over tonight's low (a small moon)
+ * after it; WeatherScene acts the weather out in the corner. Read from Open-Meteo (no key, no account) for
+ * config.xml's latitude and longitude, every 30 minutes while Home is on screen and 5 minutes after a failure; nothing runs or animates while Home is hidden. Without a
  * latitude and longitude it stays gone.
  */
 public final class WeatherView extends View {
@@ -34,38 +34,37 @@ public final class WeatherView extends View {
     }
 
     private Listener listener;
+    /** Shown and hidden with the temperature: the line before it. */
+    private View divider;
 
     private static final long REFRESH_MS = 30 * 60_000L, RETRY_MS = 5 * 60_000L;
-    /** About 30 frames a second: smooth enough for drifting clouds and drops, half the work of every vsync. */
-    private static final long FRAME_MS = 33;
 
     /** The last reading, kept across recreate() so Home shows it at once. */
     private static Sky lastSky;
     private static boolean lastDay = true;
     private static int lastTemp;
+    /** Today's high, and the low from 20:00 to 06:00 (the night now, before 06:00); MIN_VALUE while unknown. */
+    private static int lastHigh = Integer.MIN_VALUE, lastLow = Integer.MIN_VALUE;
     private static long lastFetch;
 
-    private final float density;
-    private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Path path = new Path();
-    private final Path cut = new Path();
-    private final RectF rect = new RectF();
+    private final Paint small = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint glyph = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Path moon = new Path(), cut = new Path();
+    private final float density;
     private String lat = "", lon = "";
-    private boolean shown;
-    private String temp = "";
+    private String temp = "", high = "", low = "";
 
     private final Runnable fetch = this::fetch;
 
     public WeatherView(Context context, AttributeSet attrs) {
         super(context, attrs);
-        density = getResources().getDisplayMetrics().density;
-        stroke.setStyle(Paint.Style.STROKE);
-        stroke.setStrokeCap(Paint.Cap.ROUND);
-        stroke.setStrokeJoin(Paint.Join.ROUND);
         text.setColor(0xF2FFFFFF);
-        text.setTextSize(26 * getResources().getDisplayMetrics().scaledDensity);
+        float sp = getResources().getDisplayMetrics().scaledDensity;
+        density = getResources().getDisplayMetrics().density;
+        text.setTextSize(26 * sp);
+        small.setColor(0xCCFFFFFF);
+        small.setTextSize(13 * sp);
         setVisibility(GONE);
     }
 
@@ -81,8 +80,14 @@ public final class WeatherView extends View {
         if (l != null && lastSky != null && !lat.isEmpty() && !lon.isEmpty()) l.onWeather(lastSky, lastDay);
     }
 
+    void setDivider(View v) {
+        divider = v;
+        if (getVisibility() == VISIBLE) v.setVisibility(VISIBLE);
+    }
+
     void setTypeface(Typeface face) {
         text.setTypeface(face);
+        small.setTypeface(face);
         requestLayout();
     }
 
@@ -106,18 +111,31 @@ public final class WeatherView extends View {
 
     private void fetch() {
         final String url = "https://api.open-meteo.com/v1/forecast?latitude=" + lat + "&longitude=" + lon
-                + "&current=temperature_2m,weather_code,is_day";
+                + "&current=temperature_2m,weather_code,is_day&daily=temperature_2m_max&hourly=temperature_2m"
+                + "&forecast_days=2&timezone=auto";
         new Thread(() -> {
             boolean ok = false;
             try {
-                JSONObject now = new JSONObject(read(url)).getJSONObject("current");
+                JSONObject root = new JSONObject(read(url));
+                JSONObject now = root.getJSONObject("current");
                 int code = now.getInt("weather_code");
                 double t = now.getDouble("temperature_2m");
                 boolean day = now.optInt("is_day", 1) == 1;
+                int hi = (int) Math.round(root.getJSONObject("daily").getJSONArray("temperature_2m_max").getDouble(0));
+                // Local times (timezone=auto) from today 00:00: the night is 20:00 to 06:00, or the one still on.
+                int hour = Integer.parseInt(now.getString("time").substring(11, 13));
+                JSONArray hourly = root.getJSONObject("hourly").getJSONArray("temperature_2m");
+                double night = Double.MAX_VALUE;
+                for (int i = hour < 6 ? 0 : 20; i <= (hour < 6 ? 6 : 30) && i < hourly.length(); i++) {
+                    night = Math.min(night, hourly.getDouble(i));
+                }
+                int lo = night == Double.MAX_VALUE ? Integer.MIN_VALUE : (int) Math.round(night);
                 post(() -> {
                     lastSky = skyFor(code);
                     lastDay = day;
                     lastTemp = (int) Math.round(t);
+                    lastHigh = hi;
+                    lastLow = lo;
                     lastFetch = SystemClock.elapsedRealtime();
                     show();
                 });
@@ -160,159 +178,53 @@ public final class WeatherView extends View {
 
     private void show() {
         temp = String.format(Locale.ROOT, "%d°", lastTemp);
-        setContentDescription(temp);
+        high = lastHigh == Integer.MIN_VALUE ? "" : String.format(Locale.ROOT, "%d°", lastHigh);
+        low = lastLow == Integer.MIN_VALUE ? "" : String.format(Locale.ROOT, "%d°", lastLow);
+        setContentDescription(high.isEmpty() ? temp : temp + ", " + high + " / " + low);
         setVisibility(VISIBLE);
+        if (divider != null) divider.setVisibility(VISIBLE);
         requestLayout();
         invalidate();
         if (listener != null) listener.onWeather(lastSky, lastDay);
     }
 
-    private int iconPx() {
-        return Math.round(46 * density);
-    }
+    /** The gap after the temperature, and the sun or moon before each small figure, with its gap. */
+    private float gapPx() { return 12 * density; }
+    private float glyphPx() { return 15 * density; }
 
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-        int w = iconPx() + Math.round(6 * density) + Math.round(text.measureText(temp.isEmpty() ? "00°" : temp));
-        setMeasuredDimension(w, iconPx());
+        Paint.FontMetrics fm = text.getFontMetrics();
+        float w = text.measureText(temp.isEmpty() ? "00°" : temp);
+        if (!high.isEmpty()) w += gapPx() + glyphPx() + Math.max(small.measureText(high), small.measureText(low));
+        setMeasuredDimension(Math.round(w), Math.round(fm.descent - fm.ascent));
     }
 
     @Override
     protected void onDraw(Canvas c) {
         if (lastSky == null) return;
-        float s = iconPx();
-        float t = SystemClock.uptimeMillis() / 1000f;
-        float cx = s / 2f, cy = s / 2f;
-        switch (lastSky) {
-            case CLEAR:
-                if (lastDay) sun(c, cx, cy, s * 0.20f, t);
-                else moon(c, cx, cy, s * 0.22f, t);
-                break;
-            case PARTLY:
-                if (lastDay) sun(c, cx + s * 0.14f, cy - s * 0.12f, s * 0.15f, t);
-                else moon(c, cx + s * 0.14f, cy - s * 0.12f, s * 0.15f, t);
-                cloud(c, cx - s * 0.04f + drift(t, s * 0.04f), cy + s * 0.10f, s * 0.70f, 0xFFF2F4F8);
-                break;
-            case CLOUDY:
-                cloud(c, cx + s * 0.12f - drift(t, s * 0.03f), cy - s * 0.10f, s * 0.55f, 0xFFB8C0CC);
-                cloud(c, cx - s * 0.05f + drift(t, s * 0.05f), cy + s * 0.08f, s * 0.72f, 0xFFE6EAF0);
-                break;
-            case FOG:
-                fog(c, s, t);
-                break;
-            case RAIN:
-                drops(c, s, t, false);
-                cloud(c, cx, cy - s * 0.14f, s * 0.78f, 0xFFD5DBE4);
-                break;
-            case SNOW:
-                drops(c, s, t, true);
-                cloud(c, cx, cy - s * 0.14f, s * 0.78f, 0xFFE6EAF0);
-                break;
-            case STORM:
-                drops(c, s, t, false);
-                bolt(c, s, t);
-                cloud(c, cx, cy - s * 0.14f, s * 0.78f, 0xFF9AA3B2);
-                break;
-        }
-        text.setTextAlign(Paint.Align.LEFT);
-        Paint.FontMetrics fm = text.getFontMetrics();
-        c.drawText(temp, s + 6 * density, cy - (fm.ascent + fm.descent) / 2f, text);
-        if (getWindowVisibility() == VISIBLE) postInvalidateDelayed(FRAME_MS);
-    }
-
-    private static float drift(float t, float amount) {
-        return (float) Math.sin(t * 0.8f) * amount;
-    }
-
-    /** A warm disc with eight rays that turn slowly and breathe. */
-    private void sun(Canvas c, float cx, float cy, float r, float t) {
-        fill.setColor(0x40FFC93C);
-        c.drawCircle(cx, cy, r * (1.45f + 0.1f * (float) Math.sin(t * 2)), fill);
-        stroke.setColor(0xFFFFC93C);
-        stroke.setStrokeWidth(r * 0.22f);
-        float turn = t * 25f;
-        for (int i = 0; i < 8; i++) {
-            double a = Math.toRadians(turn + i * 45);
-            float len = r * (0.45f + 0.12f * (float) Math.sin(t * 3 + i));
-            float in = r * 1.35f;
-            c.drawLine(cx + (float) Math.cos(a) * in, cy + (float) Math.sin(a) * in,
-                    cx + (float) Math.cos(a) * (in + len), cy + (float) Math.sin(a) * (in + len), stroke);
-        }
-        fill.setColor(0xFFFFD45C);
-        c.drawCircle(cx, cy, r, fill);
-    }
-
-    /** A crescent with two stars that twinkle. */
-    private void moon(Canvas c, float cx, float cy, float r, float t) {
-        path.reset();
-        path.addCircle(cx, cy, r, Path.Direction.CW);
-        cut.reset();
-        cut.addCircle(cx + r * 0.55f, cy - r * 0.35f, r * 0.85f, Path.Direction.CW);
-        path.op(cut, Path.Op.DIFFERENCE);
-        fill.setColor(0xFFF3EBC8);
-        c.drawPath(path, fill);
+        c.drawText(temp, 0, -text.getFontMetrics().ascent, text);
+        if (high.isEmpty()) return;
+        // Two small lines in the height of the temperature: the day's high over the night's low.
+        float x = text.measureText(temp) + gapPx();
+        Paint.FontMetrics fm = small.getFontMetrics();
+        float line = getHeight() / 2f;
+        float r = 3.6f * density;
         for (int i = 0; i < 2; i++) {
-            float a = 0.35f + 0.65f * (0.5f + 0.5f * (float) Math.sin(t * 2.2f + i * 2.1f));
-            fill.setColor(((int) (a * 255) << 24) | 0xFFFFFF);
-            c.drawCircle(cx + r * (i == 0 ? 1.15f : 0.75f), cy + r * (i == 0 ? -0.95f : 0.15f), r * 0.11f, fill);
-        }
-    }
-
-    /** Three overlapping puffs on a flat base, w wide, centred on (cx, cy). */
-    private void cloud(Canvas c, float cx, float cy, float w, int color) {
-        fill.setColor(color);
-        float r = w * 0.2f;
-        c.drawCircle(cx - w * 0.22f, cy + r * 0.25f, r * 0.95f, fill);
-        c.drawCircle(cx + w * 0.02f, cy - r * 0.35f, r * 1.3f, fill);
-        c.drawCircle(cx + w * 0.25f, cy + r * 0.3f, r * 0.9f, fill);
-        rect.set(cx - w * 0.42f, cy + r * 0.1f, cx + w * 0.42f, cy + r * 1.15f);
-        c.drawRoundRect(rect, r, r, fill);
-    }
-
-    /** Rain streaks or snowflakes falling from under the cloud, each on its own phase. */
-    private void drops(Canvas c, float s, float t, boolean snow) {
-        float top = s * 0.45f, fall = s * 0.5f;
-        for (int i = 0; i < 4; i++) {
-            float p = (t * (snow ? 0.45f : 1.4f) + i * 0.27f) % 1f;
-            float x = s * (0.24f + i * 0.17f) - p * (snow ? 0 : s * 0.06f);
-            float y = top + p * fall;
-            int alpha = (int) (255 * Math.min(1f, (1f - p) * 2.5f));
-            if (snow) {
-                x += (float) Math.sin(t * 2 + i) * s * 0.04f;
-                fill.setColor((alpha << 24) | 0xFFFFFF);
-                c.drawCircle(x, y, s * 0.045f, fill);
+            float mid = line * i + line / 2f;
+            if (i == 0) {
+                glyph.setColor(0xFFFFC93C);
+                c.drawCircle(x + r + density, mid, r, glyph);
             } else {
-                stroke.setColor((alpha << 24) | 0x7CC4FF);
-                stroke.setStrokeWidth(s * 0.045f);
-                c.drawLine(x, y, x - s * 0.04f, y + s * 0.13f, stroke);
+                moon.reset();
+                moon.addCircle(x + r + density, mid, r * 1.1f, Path.Direction.CW);
+                cut.reset();
+                cut.addCircle(x + r + density + r * 0.6f, mid - r * 0.4f, r * 0.95f, Path.Direction.CW);
+                moon.op(cut, Path.Op.DIFFERENCE);
+                glyph.setColor(0xFFE8E2C8);
+                c.drawPath(moon, glyph);
             }
-        }
-    }
-
-    /** A bolt that flashes twice every 2.6 seconds. */
-    private void bolt(Canvas c, float s, float t) {
-        float p = t % 2.6f;
-        if (!(p < 0.12f || p > 0.24f && p < 0.34f)) return;
-        path.reset();
-        path.moveTo(s * 0.52f, s * 0.42f);
-        path.lineTo(s * 0.38f, s * 0.68f);
-        path.lineTo(s * 0.50f, s * 0.68f);
-        path.lineTo(s * 0.42f, s * 0.92f);
-        path.lineTo(s * 0.66f, s * 0.60f);
-        path.lineTo(s * 0.54f, s * 0.60f);
-        path.close();
-        fill.setColor(0xFFFFE066);
-        c.drawPath(path, fill);
-    }
-
-    /** Four soft bands sliding to and fro. */
-    private void fog(Canvas c, float s, float t) {
-        stroke.setStrokeWidth(s * 0.07f);
-        for (int i = 0; i < 4; i++) {
-            float shift = (float) Math.sin(t * 0.9f + i * 1.3f) * s * 0.08f;
-            float y = s * (0.28f + i * 0.15f);
-            stroke.setColor(i % 2 == 0 ? 0xE6DDE3EA : 0x99DDE3EA);
-            c.drawLine(s * 0.14f + shift, y, s * 0.86f + shift, y, stroke);
+            c.drawText(i == 0 ? high : low, x + glyphPx(), mid - (fm.ascent + fm.descent) / 2f, small);
         }
     }
 }

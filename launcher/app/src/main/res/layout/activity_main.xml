@@ -202,7 +202,8 @@
                     android:orientation="horizontal"
                     android:baselineAligned="true">
 
-                    <TextClock
+                    <!-- RollingClock: rolls the digits that change and takes the focused app's colour. -->
+                    <com.gathin.tvhome.RollingClock
                         android:id="@+id/clock"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
@@ -210,7 +211,7 @@
                         android:format24Hour="HH:mm"
                         android:textColor="#FFFFFFFF"
                         android:textSize="52sp"
-                        android:fontFamily="@string/font_light"
+                        android:fontFamily="@font/outfit_regular"
                         android:letterSpacing="-0.04"
                         android:includeFontPadding="false" />
 
@@ -229,13 +230,24 @@
                         android:letterSpacing="0.08"
                         android:textAllCaps="true" />
 
+                    <!-- The same line as clockDivider, between the clock and the temperature; WeatherView shows it with itself. -->
+                    <View
+                        android:id="@+id/weatherDivider"
+                        android:layout_width="1dp"
+                        android:layout_height="26dp"
+                        android:layout_gravity="bottom"
+                        android:layout_marginStart="16dp"
+                        android:layout_marginEnd="16dp"
+                        android:layout_marginBottom="8dp"
+                        android:background="#33FFFFFF"
+                        android:visibility="gone" />
+
                     <!-- The weather now (WeatherView): gone until the first reading, and without a latitude and longitude. -->
                     <com.gathin.tvhome.WeatherView
                         android:id="@+id/weather"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_gravity="bottom"
-                        android:layout_marginStart="20dp"
                         android:layout_marginBottom="4dp"
                         android:focusable="false"
                         android:importantForAccessibility="yes" />

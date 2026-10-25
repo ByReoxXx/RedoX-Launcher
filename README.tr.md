@@ -21,11 +21,17 @@ Dock'un üstündeki en fazla beş sabit nokta, sırada nerede olduğunuzu göste
 
 ![Dock'ta gezinme](docs/redox/scroll.jpg)
 
+### Saat
+
+Saat, seçili uygulamanın rengini alıyor; arka planın üstünde belirgin kalsın diye parlak tutuluyor, altında koyu bir
+gölge, etrafında aynı renkte hafif bir ışıma var. Dakika değişince sadece değişen rakamlar kayıyor: eskisi yukarı
+çıkıp kayboluyor, yenisi aşağıdan geliyor.
+
 ### Hava durumu
 
-Saatin yanında animasyonlu bir hava simgesi ve sıcaklık var. Hava durumu ayrıca ekranın sol üst köşesinde,
-saatin arkasında canlanıyor: yavaşça sallanan güneş ışınları, gece yıldızlar, kayan bulutlar, yağmur, kar,
-fırtınada şimşek ya da sis.
+Saatin yanında sıcaklık, onun yanında da küçük bir güneşle bugünün en yüksek, küçük bir ayla bu gecenin en düşük
+sıcaklığı var. Hava durumu ayrıca ekranın sol üst köşesinde, saatin arkasında canlanıyor: yavaşça sallanan güneş
+ışınları, gece yıldızlar, kayan bulutlar, yağmur, kar, fırtınada şimşek ya da sis.
 
 | Güneşli | Yağmurlu |
 |---|---|
@@ -39,6 +45,27 @@ yenileniyor. Konum yazılmadıysa (varsayılan) hava durumu kapalı kalıyor ve 
 
 Saatin altında CPU, bellek ve depolama doluluğa göre renkleniyor: %50'nin altında yeşil, %50'den itibaren sarı,
 %80'den itibaren ya da 1 GB'tan az boş yer kaldığında kırmızı. Her birinin yanında beş çubuklu bir ölçek var.
+
+### Gece modu
+
+Gün batımından gün doğumuna kadar (enlem ve boylamınıza göre TV'de hesaplanıyor; konum yoksa 19:30–07:00) ana ekran
+hafifçe kararıyor, kutup ışıkları ve hava durumu yarı hızda hareket ediyor.
+
+![Gece modu](docs/redox/night.jpg)
+
+### Ekran koruyucu
+
+Saat ekran koruyucusu (ana ekran `home_idle_clock_minutes` kadar boşta kalınca açılan ve TV'nin kendi ekran
+koruyucusu) aynı kayan rakamlı saati, tarihi, sıcaklığı ve köşedeki hava durumunu kullanıyor. Saat, ekran
+koruyucunun yavaşça değişen ışımasının rengini takip ediyor; ilk renk, ayrıldığınızda seçili olan uygulamanın rengi.
+
+![Ekran koruyucu](docs/redox/screensaver.jpg)
+
+### TV'yi yormaz
+
+Kutup ışıkları ve hava durumu sahnesi saniyede yaklaşık 30 kare çiziliyor, sadece ana ekran açıkken çalışıyor ve
+2 dakika tuşa basılmazsa olduğu yerde duruyor; ilk tuşta devam ediyor. Test TV'sinde launcher animasyonlar
+çalışırken bir işlemci çekirdeğinin yaklaşık %45'ini kullandı, durduğunda hiç kullanmadı.
 
 ### Ayrıca
 

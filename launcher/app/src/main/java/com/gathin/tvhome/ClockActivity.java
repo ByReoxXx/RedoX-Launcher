@@ -13,6 +13,9 @@ import android.view.View;
  */
 public class ClockActivity extends Activity {
 
+    /** The colour of the app focused on Home, for the clock and the glow to start in. */
+    static final String EXTRA_ACCENT = "accent";
+
     private ClockScene scene;
 
     @Override
@@ -23,6 +26,7 @@ public class ClockActivity extends Activity {
                 | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE);
         scene = new ClockScene(getWindow().getDecorView());
         scene.useHomeWallpaper(this);
+        scene.setAccent(getIntent().getIntExtra(EXTRA_ACCENT, 0));
     }
 
     @Override
